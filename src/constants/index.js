@@ -1,5 +1,6 @@
 export const settings = {
-    siteName: process.env.SITE_NAME
+    siteName: process.env.SITE_NAME,
+    siteLogo: process.env.SITE_LOGO
 }
 export const mainMenu = [
     {
