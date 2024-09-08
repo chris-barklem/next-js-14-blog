@@ -1,0 +1,273 @@
+datasource db {
+  provider = "postgresql"
+  url = env("POSTGRES_PRISMA_URL") // uses connection pooling
+  directUrl = env("POSTGRES_URL_NON_POOLING") // uses a direct connection
+  relationMode = "prisma"
+}
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum VoteType {
+  UP
+  DOWN
+}
+
+enum RoleType {
+  ADMIN
+  MODERATOR
+  OWNER
+  MEMBER
+}
+
+enum ContentStatus {
+  ACTIVE
+  LOCKED
+  REMOVED
+}
+
+enum ReportReason {
+  VIOLATION_OF_RULES
+  SPAM
+  OFFENSIVE
+  VIOLATION_OF_GLOBAL
+  OTHER
+}
+
+model Role {
+  id    String     @id @default(cuid())
+  type  RoleType   @unique
+  users UserRole[]
+}
+
+model UserRole {
+  id     String @id @default(cuid())
+  userId String
+  roleId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id                 String                @id @default(cuid())
+  createdAt          DateTime              @default(now())
+  name               String?
+  email              String?               @unique
+  emailVerified      DateTime?
+  ownedCommunities   Community[]           @relation("OwnedBy")
+  username           String?               @unique
+  displayName        String?
+  about              String?
+  image              String?
+  coverImage         String?
+  kudos              Int                   @default(0) // Add kudos field
+  accounts           Account[]
+  sessions           Session[]
+  posts              Post[]
+  comments           Comment[]
+  commentVotes       CommentVote[]
+  postVotes          PostVote[]
+  subscriptions      Subscription[]
+  follows            Follow[]              @relation("UserFollows")
+  followedBy         Follow[]              @relation("UserFollowedBy")
+  roles              UserRole[]
+  moderations        Moderator[]
+  invitedModerations ModeratorInvitation[] @relation("InviteeInvitations")
+  sentInvitations    ModeratorInvitation[] @relation("InviterInvitations")
+  reports            Report[]              @relation("ReportedBy")
+  bans               Ban[]                 @relation("BannedUser")
+}
+
+model Community {
+  id                   String                @id @default(cuid())
+  name                 String                @unique
+  description          String?
+  image                String?
+  coverImage           String?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  posts                Post[]
+  owner                User                  @relation("OwnedBy", fields: [ownerId], references: [id])
+  ownerId              String
+  subscribers          Subscription[]
+  moderators           Moderator[]
+  bans                 Ban[]                 @relation("BannedCommunity")
+  moderatorInvitations ModeratorInvitation[]
+  kudos                Int                   @default(0) // Add kudos field
+  communityRules       CommunityRule[]
+
+  @@index([name])
+}
+
+model CommunityRule {
+  id          String    @id @default(cuid())
+  ruleIntro   String
+  ruleText    String
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  communityId String
+  order       Int // Add this line to store the order of the rule
+}
+
+model Subscription {
+  user        User      @relation(fields: [userId], references: [id])
+  userId      String
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  communityId String
+  createdAt   DateTime  @default(now())
+
+  @@id([userId, communityId])
+}
+
+model Follow {
+  userId         String
+  followedUserId String
+  user           User     @relation("UserFollows", fields: [userId], references: [id])
+  followedUser   User     @relation("UserFollowedBy", fields: [followedUserId], references: [id])
+  createdAt      DateTime @default(now())
+
+  @@id([userId, followedUserId])
+}
+
+model Post {
+  id          String        @id @default(nanoid(6))
+  title       String
+  slug        String        @unique
+  content     Json?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  community   Community?    @relation(fields: [communityId], references: [id])
+  communityId String?
+  author      User          @relation(fields: [authorId], references: [id])
+  authorId    String
+  comments    Comment[]
+  votes       PostVote[]
+  reports     Report[]      @relation("ReportedPost")
+  status      ContentStatus @default(ACTIVE)
+  reason      ReportReason?
+}
+
+model Comment {
+  id        String        @id @default(nanoid(6))
+  text      String
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  author    User          @relation(fields: [authorId], references: [id])
+  authorId  String
+  post      Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  postId    String
+  replyToId String?
+  replyTo   Comment?      @relation("ReplyTo", fields: [replyToId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  replies   Comment[]     @relation("ReplyTo")
+  votes     CommentVote[]
+  reports   Report[]      @relation("ReportedComment")
+  status    ContentStatus @default(ACTIVE)
+  reason    ReportReason?
+}
+
+model PostVote {
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  postId    String
+  type      VoteType
+  createdAt DateTime @default(now())
+
+  @@id([userId, postId])
+}
+
+model CommentVote {
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  comment   Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  commentId String
+  type      VoteType
+  createdAt DateTime @default(now())
+
+  @@id([userId, commentId])
+}
+
+model Moderator {
+  id          String    @id @default(cuid())
+  communityId String
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+
+  @@unique([communityId, userId])
+}
+
+model ModeratorInvitation {
+  id          String           @id @default(cuid())
+  communityId String
+  community   Community        @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  inviterId   String
+  inviter     User             @relation("InviterInvitations", fields: [inviterId], references: [id])
+  inviteeId   String
+  invitee     User             @relation("InviteeInvitations", fields: [inviteeId], references: [id])
+  status      InvitationStatus @default(PENDING)
+  createdAt   DateTime         @default(now())
+  expiresAt   DateTime
+
+  @@unique([communityId, inviteeId])
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  EXPIRED
+}
+
+model Report {
+  id                String       @id @default(cuid())
+  reason            ReportReason
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @default(now()) @updatedAt
+  reportedById      String
+  reportedBy        User         @relation("ReportedBy", fields: [reportedById], references: [id])
+  reportedPostId    String?      @unique
+  reportedPost      Post?        @relation("ReportedPost", fields: [reportedPostId], references: [id], onDelete: Cascade)
+  reportedCommentId String?      @unique
+  reportedComment   Comment?     @relation("ReportedComment", fields: [reportedCommentId], references: [id], onDelete: Cascade)
+}
+
+model Ban {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation("BannedUser", fields: [userId], references: [id])
+  communityId String
+  community   Community @relation("BannedCommunity", fields: [communityId], references: [id], onDelete: Cascade)
+  reason      String?
+  createdAt   DateTime  @default(now())
+
+  @@unique([userId, communityId])
+}
