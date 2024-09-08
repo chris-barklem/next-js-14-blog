@@ -1,5 +1,5 @@
 export const settings = {
-    siteName: "Maine Cooners"
+    siteName: process.env.SITE_NAME
 }
 export const mainMenu = [
     {
